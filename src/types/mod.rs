@@ -267,6 +267,7 @@ impl AxiomType {
 /// let id2 = ctx.register(AxiomType::Integer(IntegerKind::I32));
 /// assert_eq!(id1, id2);
 /// ```
+#[derive(Debug, Clone)]
 pub struct TypeContext {
     /// All registered types, indexed by `TypeId`.
     types: Vec<AxiomType>,
