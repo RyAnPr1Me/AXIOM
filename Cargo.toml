@@ -1,0 +1,17 @@
+[package]
+name = "axiom"
+version = "0.1.0"
+edition = "2021"
+description = "Axiom: A statically compiled, Python-syntax systems language with equality-saturation optimization"
+license = "MIT"
+
+[dependencies]
+egg = "0.9"
+
+[[bin]]
+name = "axiom"
+path = "src/main.rs"
+
+[lib]
+name = "axiom"
+path = "src/lib.rs"

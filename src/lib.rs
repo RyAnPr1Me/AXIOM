@@ -1,0 +1,8 @@
+pub mod lexer;
+pub mod parser;
+pub mod types;
+pub mod hir;
+pub mod egraph;
+pub mod optimizer;
+pub mod mir;
+pub mod codegen;
