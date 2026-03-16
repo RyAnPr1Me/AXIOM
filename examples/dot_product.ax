@@ -1,0 +1,5 @@
+fn dot(a: []f64, b: []f64) -> f64:
+    sum := 0.0
+    for i in 0..len(a):
+        sum += a[i] * b[i]
+    return sum

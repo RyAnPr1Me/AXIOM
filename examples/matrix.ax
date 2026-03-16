@@ -1,0 +1,7 @@
+fn matmul(a: []f64, b: []f64, c: []f64, n: i64):
+    for i in 0..n:
+        for j in 0..n:
+            sum := 0.0
+            for k in 0..n:
+                sum += a[i * n + k] * b[k * n + j]
+            c[i * n + j] = sum

@@ -1,0 +1,8 @@
+fn bubble_sort(arr: []i64):
+    n := len(arr)
+    for i in 0..n:
+        for j in 0..n - i - 1:
+            if arr[j] > arr[j + 1]:
+                tmp := arr[j]
+                arr[j] = arr[j + 1]
+                arr[j + 1] = tmp

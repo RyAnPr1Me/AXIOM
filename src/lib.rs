@@ -6,3 +6,4 @@ pub mod egraph;
 pub mod optimizer;
 pub mod mir;
 pub mod codegen;
+pub mod stdlib;
