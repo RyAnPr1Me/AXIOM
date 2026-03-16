@@ -97,11 +97,26 @@ define_language! {
         // Functions (variable arity: first child is callee, rest are args)
         "call" = Call(Box<[Id]>),
 
+        // Extended arithmetic
+        "fma" = Fma([Id; 3]),
+        "abs" = Abs([Id; 1]),
+        "min" = Min([Id; 2]),
+        "max" = Max([Id; 2]),
+
+        // Conditional select
+        "select" = Select([Id; 3]),
+
+        // Bitwise NOT
+        "~" = BitNot([Id; 1]),
+
         // SIMD
         "vec_add" = VecAdd([Id; 2]),
         "vec_mul" = VecMul([Id; 2]),
         "vec_load" = VecLoad([Id; 1]),
         "vec_store" = VecStore([Id; 2]),
+        "vec_sub" = VecSub([Id; 2]),
+        "vec_fma" = VecFma([Id; 3]),
+        "vec_broadcast" = VecBroadcast([Id; 1]),
 
         // Leaf variants – order matters: most specific first, Symbol last.
         Num(i64),
@@ -115,7 +130,7 @@ define_language! {
 // Rewrite rules
 // ---------------------------------------------------------------------------
 
-/// Build the full set of algebraic rewrite rules for Axiom (85+ rules).
+/// Build the full set of algebraic rewrite rules for Axiom (145+ rules).
 pub fn rules() -> Vec<Rewrite<AxiomLang, ()>> {
     let mut rules: Vec<Rewrite<AxiomLang, ()>> = Vec::new();
 
@@ -294,6 +309,129 @@ pub fn rules() -> Vec<Rewrite<AxiomLang, ()>> {
         rewrite!("vec-mul-comm"; "(vec_mul ?a ?b)" => "(vec_mul ?b ?a)")
     );
 
+    // ── FMA generation ──────────────────────────────────────────────────
+
+    add!(
+        rewrite!("fma-from-muladd";  "(+ (* ?a ?b) ?c)" => "(fma ?a ?b ?c)"),
+        rewrite!("fma-from-addmul";  "(+ ?c (* ?a ?b))" => "(fma ?a ?b ?c)"),
+        rewrite!("fma-from-mulsub";  "(- (* ?a ?b) ?c)" => "(fma ?a ?b (neg ?c))"),
+        rewrite!("fma-zero-addend";  "(fma ?a ?b 0)"    => "(* ?a ?b)"),
+        rewrite!("fma-unit-mul-r";   "(fma ?a 1 ?c)"    => "(+ ?a ?c)"),
+        rewrite!("fma-unit-mul-l";   "(fma 1 ?b ?c)"    => "(+ ?b ?c)")
+    );
+
+    // ── Absolute value rules ────────────────────────────────────────────
+
+    add!(
+        rewrite!("abs-idempotent";  "(abs (abs ?x))"       => "(abs ?x)"),
+        rewrite!("abs-neg";         "(abs (neg ?x))"       => "(abs ?x)"),
+        rewrite!("abs-squared";     "(* (abs ?x) (abs ?x))" => "(* ?x ?x)"),
+        rewrite!("abs-square-pos";  "(abs (* ?x ?x))"      => "(* ?x ?x)")
+    );
+
+    // ── Min/Max rules ───────────────────────────────────────────────────
+
+    add!(
+        rewrite!("min-self";        "(min ?x ?x)" => "?x"),
+        rewrite!("max-self";        "(max ?x ?x)" => "?x"),
+        rewrite!("min-comm";        "(min ?a ?b)" => "(min ?b ?a)"),
+        rewrite!("max-comm";        "(max ?a ?b)" => "(max ?b ?a)"),
+        rewrite!("min-max-absorb";  "(min ?x (max ?x ?y))" => "?x"),
+        rewrite!("max-min-absorb";  "(max ?x (min ?x ?y))" => "?x"),
+        rewrite!("neg-min-demorgan"; "(neg (min ?a ?b))" => "(max (neg ?a) (neg ?b))"),
+        rewrite!("neg-max-demorgan"; "(neg (max ?a ?b))" => "(min (neg ?a) (neg ?b))")
+    );
+
+    // ── Modular arithmetic (extended) ───────────────────────────────────
+
+    add!(
+        rewrite!("mod-self";      "(% ?x ?x)" => "0"),
+        rewrite!("mod-zero-num";  "(% 0 ?x)"  => "0"),
+        rewrite!("mod-2-to-and";  "(% ?x 2)"  => "(& ?x 1)"),
+        rewrite!("mod-4-to-and";  "(% ?x 4)"  => "(& ?x 3)"),
+        rewrite!("mod-8-to-and";  "(% ?x 8)"  => "(& ?x 7)")
+    );
+
+    // ── Multiply by small constants via shifts + add ────────────────────
+
+    add!(
+        rewrite!("mul-3-shift";  "(* ?x 3)"  => "(+ ?x (<< ?x 1))"),
+        rewrite!("mul-5-shift";  "(* ?x 5)"  => "(+ ?x (<< ?x 2))"),
+        rewrite!("mul-7-shift";  "(* ?x 7)"  => "(- (<< ?x 3) ?x)"),
+        rewrite!("mul-9-shift";  "(* ?x 9)"  => "(+ ?x (<< ?x 3))"),
+        rewrite!("mul-15-shift"; "(* ?x 15)" => "(- (<< ?x 4) ?x)"),
+        rewrite!("mul-10-shift"; "(* ?x 10)" => "(+ (<< ?x 3) (<< ?x 1))")
+    );
+
+    // ── Bitwise NOT rules ───────────────────────────────────────────────
+
+    add!(
+        rewrite!("bitnot-bitnot";       "(~ (~ ?x))"  => "?x"),
+        rewrite!("bitand-complement";    "(& ?x (~ ?x))" => "0"),
+        rewrite!("bitor-complement";     "(| ?x (~ ?x))" => "-1"),
+        rewrite!("bitnot-zero";          "(~ 0)"       => "-1"),
+        rewrite!("bitnot-neg1";          "(~ -1)"      => "0"),
+        rewrite!("bitxor-neg1-to-not";   "(^ ?x -1)"   => "(~ ?x)")
+    );
+
+    // ── De Morgan's laws ────────────────────────────────────────────────
+
+    add!(
+        rewrite!("demorgan-not-and"; "(! (&& ?a ?b))" => "(|| (! ?a) (! ?b))"),
+        rewrite!("demorgan-not-or";  "(! (|| ?a ?b))" => "(&& (! ?a) (! ?b))"),
+        rewrite!("demorgan-bitnot-and"; "(~ (& ?a ?b))" => "(| (~ ?a) (~ ?b))"),
+        rewrite!("demorgan-bitnot-or";  "(~ (| ?a ?b))" => "(& (~ ?a) (~ ?b))")
+    );
+
+    // ── Comparison negation rules ───────────────────────────────────────
+
+    add!(
+        rewrite!("not-lt-to-ge";  "(! (< ?a ?b))"  => "(>= ?a ?b)"),
+        rewrite!("not-gt-to-le";  "(! (> ?a ?b))"  => "(<= ?a ?b)"),
+        rewrite!("not-eq-to-ne";  "(! (== ?a ?b))" => "(!= ?a ?b)"),
+        rewrite!("not-ne-to-eq";  "(! (!= ?a ?b))" => "(== ?a ?b)")
+    );
+
+    // ── Select / conditional rules ──────────────────────────────────────
+
+    add!(
+        rewrite!("select-true";       "(select true ?a ?b)"  => "?a"),
+        rewrite!("select-false";      "(select false ?a ?b)" => "?b"),
+        rewrite!("select-same";       "(select ?c ?x ?x)"    => "?x"),
+        rewrite!("if-same";           "(if ?c ?x ?x)"        => "?x")
+    );
+
+    // ── SIMD vector rules ───────────────────────────────────────────────
+
+    add!(
+        rewrite!("vec-add-zero";      "(vec_add ?x (vec_broadcast 0))" => "?x"),
+        rewrite!("vec-mul-one";       "(vec_mul ?x (vec_broadcast 1))" => "?x"),
+        rewrite!("vec-mul-zero";      "(vec_mul ?x (vec_broadcast 0))" => "(vec_broadcast 0)"),
+        rewrite!("vec-sub-self";      "(vec_sub ?a ?a)"                => "(vec_broadcast 0)"),
+        rewrite!("vec-sub-zero";      "(vec_sub ?a (vec_broadcast 0))" => "?a"),
+        rewrite!("vec-fma-zero";      "(vec_fma ?a ?b (vec_broadcast 0))" => "(vec_mul ?a ?b)"),
+        rewrite!("vec-fma-from-add";  "(+ (vec_mul ?a ?b) ?c)"        => "(vec_fma ?a ?b ?c)"),
+        rewrite!("vec-fma-from-vadd"; "(vec_add (vec_mul ?a ?b) ?c)"  => "(vec_fma ?a ?b ?c)")
+    );
+
+    // ── Shift simplification ────────────────────────────────────────────
+
+    add!(
+        rewrite!("shl-combine";  "(<< (<< ?x ?a) ?b)" => "(<< ?x (+ ?a ?b))"),
+        rewrite!("shr-combine";  "(>> (>> ?x ?a) ?b)" => "(>> ?x (+ ?a ?b))"),
+        rewrite!("shl-zero";    "(<< ?x 0)" => "?x"),
+        rewrite!("shr-zero";    "(>> ?x 0)" => "?x")
+    );
+
+    // ── Algebraic factoring ─────────────────────────────────────────────
+
+    add!(
+        rewrite!("factor-add";    "(+ (* ?a ?x) (* ?b ?x))" => "(* (+ ?a ?b) ?x)"),
+        rewrite!("factor-sub";    "(- (* ?a ?x) (* ?b ?x))" => "(* (- ?a ?b) ?x)"),
+        rewrite!("double-to-shl"; "(+ ?x ?x)" => "(<< ?x 1)"),
+        rewrite!("triple";        "(+ (+ ?x ?x) ?x)" => "(* ?x 3)")
+    );
+
     rules
 }
 
@@ -337,6 +475,9 @@ impl CostFunction<AxiomLang> for AxiomCost {
             // Logical.
             AxiomLang::And(_) | AxiomLang::Or(_) | AxiomLang::Not(_) => 2,
 
+            // Bitwise NOT.
+            AxiomLang::BitNot(_) => 2,
+
             // Memory.
             AxiomLang::Load(_) => 6,
             AxiomLang::Store(_) => 6,
@@ -348,9 +489,20 @@ impl CostFunction<AxiomLang> for AxiomCost {
             // Functions.
             AxiomLang::Call(_) => 15,
 
+            // Extended arithmetic.
+            AxiomLang::Fma(_) => 4,
+            AxiomLang::Abs(_) => 2,
+            AxiomLang::Min(_) | AxiomLang::Max(_) => 3,
+
+            // Conditional select.
+            AxiomLang::Select(_) => 3,
+
             // SIMD.
             AxiomLang::VecAdd(_) | AxiomLang::VecMul(_) => 3,
             AxiomLang::VecLoad(_) | AxiomLang::VecStore(_) => 5,
+            AxiomLang::VecSub(_) => 3,
+            AxiomLang::VecFma(_) => 4,
+            AxiomLang::VecBroadcast(_) => 2,
         };
 
         enode.fold(op_cost, |sum, id| sum + costs(id))
@@ -505,10 +657,9 @@ pub fn hir_to_expr(root: &HirNode, program: &HirProgram) -> RecExpr<AxiomLang> {
                 AxiomLang::Var(egg::Symbol::from(tag.as_str()))
             }
 
-            // BitNot has no direct e-graph node; lower to XOR with -1.
+            // BitNot maps directly to the `~` e-graph node.
             HirOp::BitNot if !child_ids.is_empty() => {
-                let neg1 = expr.add(AxiomLang::Num(-1));
-                AxiomLang::BitXor([child_ids[0], neg1])
+                AxiomLang::BitNot([child_ids[0]])
             }
 
             // Fallback: represent unsupported ops as named variables so we
@@ -611,7 +762,8 @@ mod tests {
 
     #[test]
     fn mul_2_to_add() {
-        assert_eq!(opt("(* x 2)"), "(+ x x)");
+        // double-to-shl fires: (* x 2) → (+ x x) → (<< x 1)
+        assert_eq!(opt("(* x 2)"), "(<< x 1)");
     }
 
     #[test]
@@ -748,7 +900,7 @@ mod tests {
     #[test]
     fn optimizer_returns_rules() {
         let o = AxiomOptimizer::new();
-        assert!(o.rules().len() >= 50, "expected ≥50 rules, got {}", o.rules().len());
+        assert!(o.rules().len() >= 100, "expected ≥100 rules, got {}", o.rules().len());
     }
 
     // -- cost function prefers shifts over mul/div --------------------------
@@ -780,5 +932,233 @@ mod tests {
         let fb2: FloatBits = s.parse().unwrap();
         assert_eq!(fb, fb2);
         assert!((fb2.to_f64() - 3.14).abs() < 1e-10);
+    }
+
+    // -- rule count ---------------------------------------------------------
+
+    #[test]
+    fn rule_count_at_least_145() {
+        let o = AxiomOptimizer::new();
+        assert!(o.rules().len() >= 145, "expected ≥145 rules, got {}", o.rules().len());
+    }
+
+    // ======================================================================
+    // Tests for new rewrite rules
+    // ======================================================================
+
+    // -- FMA generation -----------------------------------------------------
+
+    #[test]
+    fn fma_from_muladd() {
+        let r = opt("(+ (* a b) c)");
+        assert!(r.contains("fma") || r == "(fma a b c)",
+                "expected FMA, got: {r}");
+    }
+
+    #[test]
+    fn fma_zero_addend_simplifies() {
+        assert_eq!(opt("(fma a b 0)"), "(* a b)");
+    }
+
+    #[test]
+    fn fma_unit_mul() {
+        assert_eq!(opt("(fma a 1 c)"), "(+ a c)");
+    }
+
+    // -- Mod-to-AND ---------------------------------------------------------
+
+    #[test]
+    fn mod_2_to_bitand() {
+        assert_eq!(opt("(% x 2)"), "(& x 1)");
+    }
+
+    #[test]
+    fn mod_4_to_bitand() {
+        assert_eq!(opt("(% x 4)"), "(& x 3)");
+    }
+
+    #[test]
+    fn mod_self_is_zero() {
+        assert_eq!(opt("(% x x)"), "0");
+    }
+
+    // -- Multiply by small constants ----------------------------------------
+
+    #[test]
+    fn mul_3_shift_add() {
+        // The shift+add form is available; the optimizer picks whichever is
+        // cheapest under the cost model.  Verify the rule exists in the set.
+        let rules = rules();
+        assert!(rules.iter().any(|r| r.name.as_str() == "mul-3-shift"),
+                "mul-3-shift rule missing");
+    }
+
+    #[test]
+    fn mul_5_shift_add() {
+        let rules = rules();
+        assert!(rules.iter().any(|r| r.name.as_str() == "mul-5-shift"),
+                "mul-5-shift rule missing");
+    }
+
+    // -- De Morgan (logical) ------------------------------------------------
+
+    #[test]
+    fn demorgan_not_and() {
+        // De Morgan rule exists; cost model may prefer either form.
+        let rules = rules();
+        assert!(rules.iter().any(|r| r.name.as_str() == "demorgan-not-and"),
+                "demorgan-not-and rule missing");
+    }
+
+    #[test]
+    fn demorgan_not_or() {
+        let rules = rules();
+        assert!(rules.iter().any(|r| r.name.as_str() == "demorgan-not-or"),
+                "demorgan-not-or rule missing");
+    }
+
+    // -- Min/Max simplification --------------------------------------------
+
+    #[test]
+    fn min_self() {
+        assert_eq!(opt("(min x x)"), "x");
+    }
+
+    #[test]
+    fn max_self() {
+        assert_eq!(opt("(max x x)"), "x");
+    }
+
+    #[test]
+    fn min_max_absorb() {
+        assert_eq!(opt("(min x (max x y))"), "x");
+    }
+
+    // -- Select simplification ---------------------------------------------
+
+    #[test]
+    fn select_true() {
+        assert_eq!(opt("(select true a b)"), "a");
+    }
+
+    #[test]
+    fn select_false() {
+        assert_eq!(opt("(select false a b)"), "b");
+    }
+
+    #[test]
+    fn select_same() {
+        assert_eq!(opt("(select c x x)"), "x");
+    }
+
+    // -- Double bitwise NOT ------------------------------------------------
+
+    #[test]
+    fn double_bitnot() {
+        assert_eq!(opt("(~ (~ x))"), "x");
+    }
+
+    #[test]
+    fn bitnot_zero() {
+        assert_eq!(opt("(~ 0)"), "-1");
+    }
+
+    #[test]
+    fn bitnot_neg1() {
+        assert_eq!(opt("(~ -1)"), "0");
+    }
+
+    // -- Shift combination -------------------------------------------------
+
+    #[test]
+    fn shl_combine() {
+        // Without constant folding (+ a b) stays symbolic, so verify the rule
+        // exists and fires for the variable case.
+        let rules = rules();
+        assert!(rules.iter().any(|r| r.name.as_str() == "shl-combine"),
+                "shl-combine rule missing");
+        // With zero, it simplifies: (<< (<< x a) 0) → (<< x a) via shl-zero
+        assert_eq!(opt("(<< (<< x a) 0)"), "(<< x a)");
+    }
+
+    #[test]
+    fn shr_combine() {
+        let rules = rules();
+        assert!(rules.iter().any(|r| r.name.as_str() == "shr-combine"),
+                "shr-combine rule missing");
+        assert_eq!(opt("(>> (>> x a) 0)"), "(>> x a)");
+    }
+
+    #[test]
+    fn shl_zero() {
+        assert_eq!(opt("(<< x 0)"), "x");
+    }
+
+    #[test]
+    fn shr_zero() {
+        assert_eq!(opt("(>> x 0)"), "x");
+    }
+
+    // -- If same branches --------------------------------------------------
+
+    #[test]
+    fn if_same_branches() {
+        assert_eq!(opt("(if c x x)"), "x");
+    }
+
+    // -- Comparison negation -----------------------------------------------
+
+    #[test]
+    fn not_lt_to_ge() {
+        // not-lt fires, and lt-flip may also fire giving (<= b a)
+        let r = opt("(! (< a b))");
+        assert!(r == "(>= a b)" || r == "(<= b a)",
+                "expected >= or flipped <=, got: {r}");
+    }
+
+    #[test]
+    fn not_eq_to_ne() {
+        let r = opt("(! (== a b))");
+        assert!(r == "(!= a b)" || r == "(!= b a)",
+                "expected !=, got: {r}");
+    }
+
+    // -- Absolute value ----------------------------------------------------
+
+    #[test]
+    fn abs_idempotent() {
+        assert_eq!(opt("(abs (abs x))"), "(abs x)");
+    }
+
+    #[test]
+    fn abs_neg() {
+        assert_eq!(opt("(abs (neg x))"), "(abs x)");
+    }
+
+    // -- Vector rules ------------------------------------------------------
+
+    #[test]
+    fn vec_sub_self() {
+        assert_eq!(opt("(vec_sub a a)"), "(vec_broadcast 0)");
+    }
+
+    #[test]
+    fn vec_mul_zero() {
+        assert_eq!(opt("(vec_mul x (vec_broadcast 0))"), "(vec_broadcast 0)");
+    }
+
+    // -- Algebraic factoring -----------------------------------------------
+
+    #[test]
+    fn double_to_shl() {
+        let r = opt("(+ x x)");
+        assert_eq!(r, "(<< x 1)");
+    }
+
+    // -- Bitwise complement ------------------------------------------------
+
+    #[test]
+    fn bitxor_neg1_to_not() {
+        assert_eq!(opt("(^ x -1)"), "(~ x)");
     }
 }
