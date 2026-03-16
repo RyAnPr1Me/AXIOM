@@ -303,16 +303,16 @@ fn extract_loop_body(nodes: &[HirNode], loop_idx: usize) -> Vec<HirNode> {
     }
 }
 
-fn unroll_loop(body: &mut Vec<HirNode>, _loop_idx: usize, factor: usize) {
-    // Simplified: in a real compiler we would duplicate and adjust induction
-    // variable references.  Here we record the intent.
-    let _ = factor;
+fn unroll_loop(_body: &mut Vec<HirNode>, _loop_idx: usize, _factor: usize) {
+    // TODO: Implement loop unrolling — duplicate the loop body `factor` times
+    // and adjust induction variable references accordingly. This is intentionally
+    // stubbed; the optimizer records the intent for future implementation.
 }
 
-fn fuse_adjacent_loops(body: &mut Vec<HirNode>) {
-    // Simplified: detect adjacent Loop nodes whose condition ranges are
-    // identical and merge their bodies.
-    let _ = body;
+fn fuse_adjacent_loops(_body: &mut Vec<HirNode>) {
+    // TODO: Implement loop fusion — detect adjacent Loop nodes whose iteration
+    // ranges are identical and merge their bodies. This is intentionally stubbed
+    // for future implementation.
 }
 
 // ---------------------------------------------------------------------------
